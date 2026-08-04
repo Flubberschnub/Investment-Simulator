@@ -1,113 +1,55 @@
-# Aegis Paper Trader
+# Aegis Schwab Trader
 
-A safety-first, **paper-only** intraday trading bot built with Python, Alpaca, and an optional MCP supervisory server.
+A safety-first trading research project for a Schwab-only account environment.
 
-> This repository is experimental software, not investment advice. Paper fills do not reproduce all live-market effects, including slippage, partial fills, queue position, liquidity, halts, and outages.
+## What v0.2 can do
 
-## Safety boundary
+- Backtest the TQQQ opening-range breakout against local OHLCV CSV files.
+- Apply deterministic position sizing and daily-loss/trade-count controls.
+- Connect to the Schwab Trader API for authorized account discovery.
+- Connect to Schwab market data for read/shadow workflows.
+- Run an MCP supervisor that can inspect, pause, and resume simulation/shadow mode.
+- Import a matching thinkScript strategy into thinkorswim for hypothetical testing.
 
-This release cannot select Alpaca live trading. The broker adapter constructs `TradingClient(..., paper=True)` directly and exposes no setting that can change it. It also excludes options, shorts, overnight positions, averaging down, and arbitrary MCP order placement.
+## What v0.2 cannot do
 
-Hard controls include:
+**It cannot submit a live order.** `SchwabClient.place_order()` always raises. Live execution requires written employee-compliance approval and a separately reviewed release. thinkScript strategy signals are hypothetical and do not transmit orders.
 
-- 0.25% account-equity risk budget per planned trade by default
-- 1% account daily-loss circuit breaker by default
-- 25% maximum position notional by default
-- One position and one open order at a time
-- Three submitted trades per day maximum
-- Broker-side stop and take-profit bracket
-- Stale quote and wide spread rejection
-- Forced flatten beginning at 3:50 p.m. Eastern
-- Deterministic client order IDs to prevent duplicate retries
-- Persistent emergency pause and SQLite audit trail
-
-## Strategy v1
-
-The approved strategy is a long-only TQQQ opening-range breakout:
-
-1. Build the opening range from 9:30–9:45 a.m. Eastern.
-2. Evaluate completed five-minute bars between 9:45 a.m. and 2:00 p.m.
-3. Require a fresh close above the opening-range high.
-4. Require price above session VWAP.
-5. Require elevated volume relative to the previous five bars.
-6. Reject extended entries, large stops, stale quotes, and wide spreads.
-7. Submit a whole-share market bracket order sized by the risk gateway.
-
-The strategy is intentionally simple and deterministic so every decision can be reproduced.
-
-## Setup
-
-Requirements: Python 3.11+ and a dedicated Alpaca paper-trading account. The bot performs account-wide safety checks and end-of-day flattening, so do not share that paper account with unrelated experiments.
+## Install
 
 ```bash
-git clone https://github.com/Flubberschnub/Investment-Simulator.git
-cd Investment-Simulator
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Add **paper** API credentials to `.env`:
+## Local backtest
 
-```dotenv
-AEGIS_ALPACA_API_KEY=your-paper-key
-AEGIS_ALPACA_SECRET_KEY=your-paper-secret
-```
-
-Verify the connection:
+CSV columns: `timestamp,open,high,low,close,volume` with ISO-8601 timestamps.
 
 ```bash
-aegis-trader doctor
+aegis-trader backtest data/TQQQ_5m.csv
 ```
 
-Run one evaluation without starting a daemon:
+The simulator uses a conservative same-bar rule: if a stop and target are both touched, the stop is assumed to fill first.
+
+## thinkorswim
+
+Import `thinkscript/Aegis_ORB_Strategy.ts` as a Strategy on a five-minute chart. Use it in paperMoney to compare chart signals with Python backtests. It is not an automated-order bridge.
+
+## Schwab shadow setup
+
+See `docs/SCHWAB_SETUP.md`. Keep the repository private before adding any account-specific configuration, and never commit OAuth tokens.
 
 ```bash
-aegis-trader once
+AEGIS_EXECUTION_MODE=schwab_shadow aegis-trader schwab-doctor
 ```
 
-Run continuously:
+## MCP safety surface
+
+The MCP server exposes status, pause, and simulation/shadow resume only. It exposes no order-placement tool and refuses live-mode resume.
 
 ```bash
-aegis-trader run
+aegis-mcp
 ```
-
-## Emergency controls
-
-```bash
-aegis-trader pause "manual review"
-aegis-trader status
-aegis-trader flatten --confirm PAPER
-aegis-trader resume --acknowledge-paper-only
-```
-
-Pausing blocks new entries but does not disable the end-of-day flatten path.
-
-## Docker
-
-```bash
-cp .env.example .env
-# Fill in paper credentials
-docker compose up -d --build trader
-docker compose logs -f trader
-```
-
-To also run MCP locally:
-
-```bash
-docker compose --profile mcp up -d --build
-```
-
-See [`docs/MCP_AND_SCHEDULING.md`](docs/MCP_AND_SCHEDULING.md).
-
-## Tests
-
-```bash
-ruff check .
-pytest --cov=aegis_trader
-```
-
-## Before any real-money implementation
-
-Do not turn this into a live bot merely by replacing `paper=True`. Complete the verification roadmap in [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), especially backtesting, shadow trading, order-stream reconciliation, multi-week paper operation, and an independent code review.

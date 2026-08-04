@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import time
 from decimal import Decimal
+from enum import StrEnum
 from pathlib import Path
 from typing import Self
 
@@ -9,13 +9,16 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class ExecutionMode(StrEnum):
+    SIMULATION = "simulation"
+    SCHWAB_SHADOW = "schwab_shadow"
+    SCHWAB_LIVE = "schwab_live"
+
+
+LIVE_ACK = "I_HAVE_WRITTEN_COMPLIANCE_APPROVAL"
+
+
 class Settings(BaseSettings):
-    """Runtime configuration.
-
-    The application intentionally has no live-trading switch. The Alpaca client is always
-    constructed with ``paper=True``.
-    """
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="AEGIS_",
@@ -24,58 +27,48 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    alpaca_api_key: SecretStr | None = None
-    alpaca_secret_key: SecretStr | None = None
-
+    execution_mode: ExecutionMode = ExecutionMode.SIMULATION
     symbol: str = "TQQQ"
     database_path: Path = Path("data/aegis.db")
-    poll_seconds: int = Field(default=20, ge=5, le=300)
-    log_level: str = "INFO"
 
+    starting_cash: Decimal = Field(default=Decimal("10000"), gt=0)
     risk_per_trade_pct: Decimal = Field(default=Decimal("0.0025"), gt=0, le=Decimal("0.01"))
     max_daily_loss_pct: Decimal = Field(default=Decimal("0.01"), gt=0, le=Decimal("0.03"))
-    max_position_notional_pct: Decimal = Field(
-        default=Decimal("0.25"), gt=0, le=Decimal("0.50")
-    )
+    max_position_notional_pct: Decimal = Field(default=Decimal("0.25"), gt=0, le=Decimal("0.50"))
     max_trades_per_day: int = Field(default=3, ge=1, le=10)
-    reward_to_risk: Decimal = Field(default=Decimal("2.0"), ge=Decimal("1.0"), le=Decimal("5"))
+    reward_to_risk: Decimal = Field(default=Decimal("2"), ge=1, le=5)
 
-    bar_minutes: int = Field(default=5, ge=1, le=15)
     opening_range_minutes: int = Field(default=15, ge=5, le=60)
     volume_lookback: int = Field(default=5, ge=2, le=20)
-    volume_factor: Decimal = Field(default=Decimal("1.20"), ge=Decimal("1"), le=Decimal("5"))
+    volume_factor: Decimal = Field(default=Decimal("1.20"), ge=1, le=5)
     max_extension_pct: Decimal = Field(default=Decimal("0.004"), gt=0, le=Decimal("0.03"))
     max_stop_pct: Decimal = Field(default=Decimal("0.0125"), gt=0, le=Decimal("0.05"))
-    max_spread_bps: Decimal = Field(default=Decimal("20"), gt=0, le=Decimal("100"))
-    quote_max_age_seconds: int = Field(default=30, ge=5, le=120)
 
-    entry_start: time = time(9, 45)
-    entry_cutoff: time = time(14, 0)
-    flatten_time: time = time(15, 50)
-    market_timezone: str = "America/New_York"
+    schwab_client_id: SecretStr | None = None
+    schwab_client_secret: SecretStr | None = None
+    schwab_redirect_uri: str | None = None
+    schwab_access_token: SecretStr | None = None
+    schwab_account_hash: SecretStr | None = None
+    schwab_market_base_url: str = "https://api.schwabapi.com/marketdata/v1"
+    schwab_trader_base_url: str = "https://api.schwabapi.com/trader/v1"
 
-    mcp_transport: str = "stdio"
-    mcp_host: str = "127.0.0.1"
-    mcp_port: int = Field(default=8765, ge=1024, le=65535)
+    compliance_approved: bool = False
+    live_trading_ack: SecretStr | None = None
 
     @model_validator(mode="after")
-    def validate_strategy_window(self) -> Self:
-        if self.opening_range_minutes % self.bar_minutes != 0:
-            raise ValueError("opening_range_minutes must be divisible by bar_minutes")
-        if not self.entry_start < self.entry_cutoff < self.flatten_time:
-            raise ValueError("Expected entry_start < entry_cutoff < flatten_time")
+    def validate_settings(self) -> Self:
         self.symbol = self.symbol.strip().upper()
         if not self.symbol.isalnum():
             raise ValueError("symbol must contain only letters and numbers")
+        if self.execution_mode is ExecutionMode.SCHWAB_LIVE:
+            ack = self.live_trading_ack.get_secret_value() if self.live_trading_ack else ""
+            if not self.compliance_approved or ack != LIVE_ACK:
+                raise ValueError(
+                    "schwab_live requires written compliance approval and the exact live acknowledgement"
+                )
         return self
 
-    def require_alpaca_credentials(self) -> tuple[str, str]:
-        if self.alpaca_api_key is None or self.alpaca_secret_key is None:
-            raise RuntimeError(
-                "Missing paper API credentials. Set AEGIS_ALPACA_API_KEY and "
-                "AEGIS_ALPACA_SECRET_KEY."
-            )
-        return (
-            self.alpaca_api_key.get_secret_value(),
-            self.alpaca_secret_key.get_secret_value(),
-        )
+    def require_schwab_token(self) -> str:
+        if self.schwab_access_token is None:
+            raise RuntimeError("Set AEGIS_SCHWAB_ACCESS_TOKEN for Schwab read/shadow access")
+        return self.schwab_access_token.get_secret_value()

@@ -6,13 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 
-def decimal_from(value: Any) -> Decimal:
-    """Convert API numeric values to Decimal without binary float artifacts."""
-
-    return Decimal(str(value))
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Bar:
     timestamp: datetime
     open: Decimal
@@ -22,95 +16,59 @@ class Bar:
     volume: int
 
 
-@dataclass(frozen=True, slots=True)
-class Quote:
+@dataclass(frozen=True)
+class Signal:
     timestamp: datetime
-    bid: Decimal
-    ask: Decimal
-
-    @property
-    def midpoint(self) -> Decimal:
-        return (self.bid + self.ask) / Decimal("2")
-
-    @property
-    def spread_bps(self) -> Decimal:
-        midpoint = self.midpoint
-        if midpoint <= 0:
-            return Decimal("Infinity")
-        return ((self.ask - self.bid) / midpoint) * Decimal("10000")
-
-
-@dataclass(frozen=True, slots=True)
-class StrategySignal:
     symbol: str
-    timestamp: datetime
-    signal_key: str
-    entry_estimate: Decimal
-    stop_price: Decimal
-    target_price: Decimal
-    opening_range_high: Decimal
-    vwap: Decimal
+    entry: Decimal
+    stop: Decimal
+    target: Decimal
     reason: str
 
 
-@dataclass(frozen=True, slots=True)
-class AccountSnapshot:
-    equity: Decimal
-    last_equity: Decimal
-    buying_power: Decimal
-    trading_blocked: bool
-
-    @property
-    def daily_pnl(self) -> Decimal:
-        return self.equity - self.last_equity
-
-
-@dataclass(frozen=True, slots=True)
-class MarketClock:
-    timestamp: datetime
-    is_open: bool
-    next_open: datetime
-    next_close: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class PositionSnapshot:
-    symbol: str
-    quantity: Decimal
-    market_value: Decimal
-
-
-@dataclass(frozen=True, slots=True)
-class OrderSnapshot:
-    id: str
-    client_order_id: str
-    symbol: str
-    status: str
-
-
-@dataclass(frozen=True, slots=True)
-class OrderPlan:
-    symbol: str
-    quantity: int
-    entry_estimate: Decimal
-    stop_price: Decimal
-    target_price: Decimal
-    client_order_id: str
-    signal_key: str
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class RiskDecision:
     allowed: bool
-    reason: str
     quantity: int = 0
-    risk_budget: Decimal = Decimal("0")
-    estimated_notional: Decimal = Decimal("0")
-    halt_trading: bool = False
+    reason: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class CycleResult:
-    status: str
-    message: str
-    details: dict[str, Any] = field(default_factory=dict)
+@dataclass(frozen=True)
+class Trade:
+    symbol: str
+    entry_time: datetime
+    exit_time: datetime
+    quantity: int
+    entry: Decimal
+    exit: Decimal
+    stop: Decimal
+    target: Decimal
+    pnl: Decimal
+    exit_reason: str
+
+
+@dataclass
+class BacktestReport:
+    starting_cash: Decimal
+    ending_cash: Decimal
+    trades: list[Trade] = field(default_factory=list)
+
+    @property
+    def total_pnl(self) -> Decimal:
+        return self.ending_cash - self.starting_cash
+
+    @property
+    def win_rate(self) -> Decimal:
+        if not self.trades:
+            return Decimal("0")
+        wins = sum(1 for trade in self.trades if trade.pnl > 0)
+        return Decimal(wins) / Decimal(len(self.trades))
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "starting_cash": str(self.starting_cash),
+            "ending_cash": str(self.ending_cash),
+            "total_pnl": str(self.total_pnl),
+            "trades": len(self.trades),
+            "win_rate": str(self.win_rate),
+        }
