@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-paper-trader"
+version = "0.1.0"
+description = "A safety-first, paper-only intraday trading bot with Alpaca and MCP supervision."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Flubberschnub" }]
+dependencies = [
+  "alpaca-py==0.43.5",
+  "mcp>=1.27,<2",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "typer>=0.15,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15,<2",
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.11,<1",
+]
+
+[project.scripts]
+aegis-trader = "aegis_trader.cli:app"
+aegis-mcp = "aegis_trader.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+packages = ["aegis_trader"]
