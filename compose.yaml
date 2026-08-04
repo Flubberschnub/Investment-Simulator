@@ -1,0 +1,25 @@
+services:
+  trader:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - aegis-data:/app/data
+
+  mcp:
+    build: .
+    profiles: ["mcp"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AEGIS_MCP_TRANSPORT: streamable-http
+      AEGIS_MCP_HOST: 0.0.0.0
+      AEGIS_MCP_PORT: 8765
+    command: ["aegis-mcp"]
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - aegis-data:/app/data
+
+volumes:
+  aegis-data:
